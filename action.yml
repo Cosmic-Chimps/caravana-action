@@ -1,0 +1,99 @@
+name: Deploy to Caravana
+description: Deploy an app to a Caravana host, wait until it is healthy, and optionally promote it to another environment.
+author: Cosmic Chimps
+branding:
+  icon: upload-cloud
+  color: blue
+
+inputs:
+  url:
+    description: Your Caravana address, for example https://caravana.example.com.
+    required: true
+  token:
+    description: A Caravana API token or a deploy token for the app. Store it as a repository secret.
+    required: true
+  app:
+    description: The app ID. Use this, or project, environment and name.
+    required: false
+    default: ""
+  project:
+    description: The app's project (with environment and name, instead of app).
+    required: false
+    default: ""
+  environment:
+    description: The app's environment (with project and name, instead of app).
+    required: false
+    default: ""
+  name:
+    description: The app's name (with project and environment, instead of app).
+    required: false
+    default: ""
+  image:
+    description: The image to deploy, for example ghcr.io/owner/app@sha256:... . Without it the stored app is deployed again.
+    required: false
+    default: ""
+  service:
+    description: Which service gets the image. Needed when the app has more than one.
+    required: false
+    default: ""
+  definition:
+    description: Path to a JSON file holding the app, used when the app does not exist yet or has no definition.
+    required: false
+    default: ""
+  wait:
+    description: Wait for the deployment to end. "false" prints the deployment ID and finishes.
+    required: false
+    default: "true"
+  timeout:
+    description: How many seconds to wait for a deployment.
+    required: false
+    default: "600"
+  promote:
+    description: An environment of the app's project to promote to once the deployment is healthy.
+    required: false
+    default: ""
+  fail-on-superseded:
+    description: Fail the step when a newer deploy replaced this one.
+    required: false
+    default: "false"
+
+outputs:
+  app-id:
+    description: The app ID the step deployed.
+    value: ${{ steps.deploy.outputs.app-id }}
+  deployment-id:
+    description: The deployment's ID.
+    value: ${{ steps.deploy.outputs.deployment-id }}
+  job-version:
+    description: The Nomad job version of the deployment.
+    value: ${{ steps.deploy.outputs.job-version }}
+  status:
+    description: The deployment's status (healthy, failed, reverted, superseded, or what it was when the step stopped waiting).
+    value: ${{ steps.deploy.outputs.status }}
+  promotion-id:
+    description: The deployment ID of the promotion, when promote is set.
+    value: ${{ steps.deploy.outputs.promotion-id }}
+  promotion-status:
+    description: The promotion's status, when promote is set.
+    value: ${{ steps.deploy.outputs.promotion-status }}
+
+runs:
+  using: composite
+  steps:
+    - id: deploy
+      shell: bash
+      env:
+        CARAVANA_URL: ${{ inputs.url }}
+        CARAVANA_TOKEN: ${{ inputs.token }}
+        CARAVANA_APP: ${{ inputs.app }}
+        CARAVANA_PROJECT: ${{ inputs.project }}
+        CARAVANA_ENVIRONMENT: ${{ inputs.environment }}
+        CARAVANA_NAME: ${{ inputs.name }}
+        CARAVANA_IMAGE: ${{ inputs.image }}
+        CARAVANA_SERVICE: ${{ inputs.service }}
+        CARAVANA_DEFINITION: ${{ inputs.definition }}
+        CARAVANA_WAIT: ${{ inputs.wait }}
+        CARAVANA_TIMEOUT: ${{ inputs.timeout }}
+        CARAVANA_PROMOTE: ${{ inputs.promote }}
+        CARAVANA_FAIL_ON_SUPERSEDED: ${{ inputs.fail-on-superseded }}
+      run: '"$GITHUB_ACTION_PATH/caravana-deploy.sh"'
