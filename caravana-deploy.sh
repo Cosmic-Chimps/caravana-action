@@ -160,6 +160,12 @@ set_output() {
 
 set_output app-id "$APP_ID"
 
+# The job summary's table rows and its closing note, written at the end
+# (write_summary, below).
+summary_lines=()
+summary_note=""
+add_summary() { summary_lines+=("$1"); }
+
 # --------------------------------------------------------------- origin
 
 # The origin headers say where the deploy came from. Each is sent only when
@@ -323,6 +329,16 @@ else
   die "App '$APP_ID' has no definition: give 'definition' (or 'image' with a definition file)."
 fi
 
+# What this run does, as an output and the summary's first row, so a first
+# release ("defined") reads apart from the ones after it.
+set_output mode "$mode"
+case "$mode" in
+  replace-image) add_summary "| Did | deployed a new image into the stored app |" ;;
+  define)        add_summary "| Did | defined the app from \`$DEFINITION\` and deployed it |" ;;
+  redeploy)      add_summary "| Did | redeployed the app as stored |" ;;
+  promote-only)  add_summary "| Did | promoted only, without deploying first |" ;;
+esac
+
 # build_payload makes $payload for the mode, from the app as just read.
 build_payload() {
   case "$mode" in
@@ -437,9 +453,7 @@ describe_wait() {
 
 # ------------------------------------------------------------- summary
 
-summary_lines=()
-summary_note=""
-add_summary() { summary_lines+=("$1"); }
+# summary_lines, summary_note and add_summary are set up with the outputs, above.
 
 write_summary() {
   [ -n "${GITHUB_STEP_SUMMARY:-}" ] || return 0

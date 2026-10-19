@@ -192,6 +192,7 @@ redeploy); follows the deployment every 5 seconds until it is `healthy`, `failed
 | `status` | `healthy`, `failed`, `reverted`, `superseded`, or the last status seen when waiting stopped. |
 | `promotion-id` | The promotion's deployment ID, when `promote` is set. |
 | `promotion-status` | The promotion's final status, when `promote` is set. |
+| `mode` | What the step did: `define` (the app got its definition from `definition`), `replace-image`, `redeploy` (as stored) or `promote-only`. The job summary says it too. |
 
 The step also writes a table to the job summary (status, deployment, job version, image digests,
 commit), prints Caravana's warnings as `::warning::` lines, and reports failures as `::error::` lines

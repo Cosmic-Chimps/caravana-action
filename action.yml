@@ -76,6 +76,9 @@ outputs:
   promotion-status:
     description: The promotion's status, when promote is set.
     value: ${{ steps.deploy.outputs.promotion-status }}
+  mode:
+    description: What the step did - define (the app had no definition and got one from `definition`), replace-image, redeploy (as stored) or promote-only.
+    value: ${{ steps.deploy.outputs.mode }}
 
 runs:
   using: composite

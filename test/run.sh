@@ -230,6 +230,8 @@ eq "body: image replaced, rest kept" \
   "$(posted_json POST "$DEPLOYS" 0)"
 origin_sent POST "$DEPLOYS"
 outputs_has app-id=web
+outputs_has mode=replace-image
+summary_has '| Did | deployed a new image into the stored app |'
 outputs_has deployment-id=dep1
 outputs_has job-version=7
 outputs_has status=healthy
@@ -307,6 +309,7 @@ origin_sent POST "$DEPLOYS"
 outputs_has status=healthy
 outputs_has deployment-id=dep1
 out_has "redeploying app 'web' as stored"
+outputs_has mode=redeploy
 summary_has '| Image | `web: ghcr.io/acme/web:latest@sha256:'
 
 run_case redeploy-ignores-definition '{}' CARAVANA_APP=web "CARAVANA_DEFINITION=$tmp/def.json"
@@ -333,6 +336,8 @@ eq "file's app, image replaced" \
 origin_sent POST "$DEPLOYS"
 outputs_has status=healthy
 out_has "defining it from"
+outputs_has mode=define
+summary_has '| Did | defined the app from'
 
 run_case define-without-image '{"app": null}' CARAVANA_APP=web "CARAVANA_DEFINITION=$tmp/def.json"
 exit_is 0
@@ -526,6 +531,8 @@ eq "promote body" '{"to":"production"}' "$(posted_json POST '/promote$' 0)"
 origin_sent POST '/promote$'
 eq "promotion polled until healthy" 2 "$(count GET '^/v1/apps/shop--production--web/deployments/prom1$')"
 outputs_has app-id=shop--staging--web
+outputs_has mode=promote-only
+summary_has '| Did | promoted only, without deploying first |'
 outputs_has promotion-id=prom1
 outputs_has promotion-status=healthy
 outputs_lack deployment-id
