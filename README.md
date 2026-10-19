@@ -73,7 +73,7 @@ your other apps or Caravana's settings.
 - A deploy token covers that app name in every environment of its project. It can read the app and
   its deployments, deploy it, create it without deploying, and preview and run promotions between
   its environments. Every other request answers 403.
-- Deploy tokens arrived in Caravana 0.9.0. On an older Caravana, use a full API token until you
+- Deploy tokens arrived in Caravana 0.8.1. On an older Caravana, use a full API token until you
   upgrade.
 
 A full API token works too, but give CI the narrow one.
@@ -231,7 +231,7 @@ Nothing else about your repository or workflow is sent.
 
 - Caravana 0.7.0 or later (API 0.17, which says whether an app is defined yet). Deploying and
   promoting work there with a full API token.
-- Caravana 0.9.0 or later (API 0.19) for deploy tokens (a token for one app) and for the deploy's
+- Caravana 0.8.1 or later (API 0.19) for deploy tokens (a token for one app) and for the deploy's
   origin (commit, ref, actor, run) being recorded and shown; an older Caravana ignores the
   origin headers.
 - A runner with bash, curl and jq. GitHub-hosted Linux and macOS runners have all three.
