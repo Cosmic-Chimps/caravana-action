@@ -26,16 +26,16 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
@@ -48,6 +48,9 @@ jobs:
           app: web
           image: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
 ```
+
+To build for several platforms, add `docker/setup-buildx-action@v4` before the build step and set
+`platforms` on `docker/build-push-action`.
 
 Add `CARAVANA_TOKEN` to the repository's secrets (see the next section). The `app` is the app's ID
 in Caravana. An app in project `default`, environment `production` has its bare name as its ID;
@@ -145,9 +148,15 @@ jobs:
           promote: production
 ```
 
-The second step deploys staging as stored, then promotes it. The staging step deployed a digest,
-so the stored app holds that digest and this redeploy runs the same image. The `production` app must already exist in the project. To promote in the same job
-right after deploying, add `promote: production` to the staging step instead.
+The second job gives `promote` and no `image` (and no `definition`), so it deploys nothing: it asks
+Caravana to promote the source app's newest healthy deployment to `production`, and waits for that
+promotion. Production runs exactly the image digests that staging's deployment pinned. If that
+deployment is not healthy, Caravana refuses (for example `deployment_not_healthy`) and the step
+fails with its message. The `production` app must already exist in the project. To promote in the
+same job right after deploying, add `promote: production` to the staging step instead.
+
+In that case the outputs `deployment-id`, `status` and `job-version` are empty and `promotion-id`
+and `promotion-status` are set.
 
 ## Inputs
 
@@ -162,10 +171,10 @@ right after deploying, add `promote: production` to the staging step instead.
 | `definition` | no | | Path to a JSON file holding the app. Used when the app is missing or has no definition. |
 | `wait` | no | `true` | Wait for the deployment to end. `false` prints the deployment ID and finishes. |
 | `timeout` | no | `600` | Seconds to wait for a deployment (and again for a promotion). Caravana carries on after a timeout. |
-| `promote` | no | | An environment of the app's project to promote to once the deployment is healthy. Needs `wait: true`. |
+| `promote` | no | | An environment of the app's project to promote to. With `image` or `definition`, the deployment is made first and promoted once healthy; alone, nothing is deployed and the newest healthy deployment is promoted. Needs `wait: true`. |
 | `fail-on-superseded` | no | `false` | Fail the step when a newer deploy replaced this one. Caravana's newest deploy wins, so by default the older step passes. |
 
-What happens, in order: the action reads the app; sends the deploy (a new definition, the stored
+What happens, in order: the action reads the app; with only `promote` it goes straight to the promotion. Otherwise it sends the deploy (a new definition, the stored
 app with the new image and `If-Match` so a concurrent edit is not overwritten, or an empty body to
 redeploy); follows the deployment every 5 seconds until it is `healthy`, `failed`, `reverted` or
 `superseded`; then promotes if asked. If the app changed between the read and the deploy (412

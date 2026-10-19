@@ -514,9 +514,67 @@ out_has "Promotion healthy: job version 7"
 summary_has '| Promotion to production | `healthy` |'
 summary_has '| Promotion deployment | `prom1` |'
 summary_has '| Promoted app | `shop--production--web` |'
-run_case promote-only '{}' CARAVANA_APP=shop--staging--web CARAVANA_PROMOTE=production
+echo "== promote only (no image, no definition: nothing is deployed first)"
+ONLY_ENV=(CARAVANA_APP=shop--staging--web CARAVANA_PROMOTE=production)
+run_case promote-only "$SHOP_APP" "${ONLY_ENV[@]}"
 exit_is 0
-eq "redeployed first" 1 "$(count POST "$DEPLOYS")"
+eq "no deploy request" 0 "$(count POST '/deployments$')"
+eq "the app was read" 1 "$(count GET '^/v1/apps/shop--staging--web$')"
+eq "no source deployment read" 0 "$(count GET '^/v1/apps/shop--staging--web/deployments/')"
+eq "promoted" 1 "$(count POST '^/v1/apps/shop--staging--web/promote$')"
+eq "promote body" '{"to":"production"}' "$(posted_json POST '/promote$' 0)"
+origin_sent POST '/promote$'
+eq "promotion polled until healthy" 2 "$(count GET '^/v1/apps/shop--production--web/deployments/prom1$')"
+outputs_has app-id=shop--staging--web
+outputs_has promotion-id=prom1
+outputs_has promotion-status=healthy
+outputs_lack deployment-id
+outputs_lack status
+outputs_lack job-version
+out_has "Promotion healthy: job version 7"
+summary_has "Promoted the newest healthy deployment of shop--staging--web to production."
+summary_has '| Promotion to production | `healthy` |'
+run_case promote-only-bare '{}' CARAVANA_APP=web CARAVANA_PROMOTE=production
+exit_is 0
+eq "no deploy request" 0 "$(count POST '/deployments$')"
+eq "promoted" 1 "$(count POST '^/v1/apps/web/promote$')"
+promote_only_refused() { # NAME STATUS CODE MESSAGE
+  run_case "promote-only-$1" "{\"promote\": {\"post_error\": {\"status\": $2, \"error\": {\"code\": \"$3\", \"message\": \"$4\"}}}}" "${ONLY_ENV[@]}"
+  exit_is 1
+  eq "no deploy request" 0 "$(count POST '/deployments$')"
+  out_has "::error::Caravana answered $2 promoting app 'shop--staging--web' to 'production': $3: $4"
+  outputs_lack promotion-id
+  outputs_lack status
+}
+promote_only_refused not-healthy 409 deployment_not_healthy "the newest deployment is failed"
+promote_only_refused no-definition 409 definition_not_recorded "the deployment has no recorded definition"
+promote_only_refused not-in-env 404 app_not_in_environment "no app web in environment production"
+run_case promote-only-failed '{"promote": {"final": "failed", "error": "target unhealthy"}}' "${ONLY_ENV[@]}"
+exit_is 1
+eq "no deploy request" 0 "$(count POST '/deployments$')"
+out_has "::error::The promotion ended 'failed': target unhealthy"
+outputs_has promotion-status=failed
+run_case promote-only-timeout '{"promote": {"final": "never"}}' "${ONLY_ENV[@]}" CARAVANA_TIMEOUT=1
+exit_is 1
+out_has "The promotion prom1 was still 'running' after 1 seconds"
+outputs_has promotion-status=running
+run_case promote-only-superseded '{"promote": {"final": "superseded", "error": "replaced"}}' "${ONLY_ENV[@]}"
+exit_is 0
+outputs_has promotion-status=superseded
+run_case promote-only-stopped '{"app": {"stoppedAt": "2026-10-18T09:00:00Z"}}' "${ONLY_ENV[@]}"
+exit_is 1
+out_has "::error::The app is stopped: start it first"
+eq "no promote request" 0 "$(count POST '/promote$')"
+run_case promote-only-no-app '{"app": null}' "${ONLY_ENV[@]}"
+exit_is 1
+out_has "::error::App 'shop--staging--web' does not exist: there is nothing to promote."
+eq "no promote request" 0 "$(count POST '/promote$')"
+run_case promote-only-401 '{"token": "cvat_other"}' "${ONLY_ENV[@]}"
+exit_is 1
+out_has "check the input 'token'"
+run_case promote-definition-deploys-first '{}' "${ONLY_ENV[@]}" "CARAVANA_DEFINITION=$tmp/def.json"
+exit_is 0
+eq "a definition means a deploy first" 1 "$(count POST '/deployments$')"
 eq "then promoted" 1 "$(count POST '/promote$')"
 run_case promote-after-failed '{"deploy": {"final": "failed", "error": "nope"}}' "${PROMO_ENV[@]}"
 exit_is 1

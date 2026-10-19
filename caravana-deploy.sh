@@ -242,8 +242,9 @@ location_of() {
 
 # --------------------------------------------------------- read the app
 
-echo "Deploying app '$APP_ID' on $base"
+echo "Caravana app '$APP_ID' at $base"
 
+app_exists=false
 app_defined=false
 revision=""
 record="$work/record.json"
@@ -252,6 +253,7 @@ read_app() {
   call_or_die GET "/v1/apps/$APP_ID"
   case "$HTTP_CODE" in
     200)
+      app_exists=true
       cp "$body" "$record"
       app_defined="$(jq -r '.defined' "$record")"
       revision="$(jq -r '.revision // ""' "$record")"
@@ -260,6 +262,7 @@ read_app() {
       fi
       ;;
     404)
+      app_exists=false
       app_defined=false
       revision=""
       ;;
@@ -295,8 +298,14 @@ set_image() {
 # ----------------------------------------------------------- the deploy
 
 payload="$work/payload.json"
-mode=""            # replace-image | define | redeploy
-if [ -n "$IMAGE" ] && [ "$app_defined" = true ]; then
+mode=""            # replace-image | define | redeploy | promote-only
+if [ -n "$PROMOTE" ] && [ -z "$IMAGE" ] && [ -z "$DEFINITION" ]; then
+  # Only a promotion: nothing is deployed first, so what runs in the target is
+  # exactly what the source's newest healthy deployment pinned. Caravana refuses
+  # when that deployment is not healthy.
+  mode=promote-only
+  [ "$app_exists" = true ] || die "App '$APP_ID' does not exist: there is nothing to promote."
+elif [ -n "$IMAGE" ] && [ "$app_defined" = true ]; then
   mode=replace-image
   if [ -n "$DEFINITION" ]; then
     notice "The input 'definition' is ignored: app '$APP_ID' is already defined, so the image goes into the stored app."
@@ -348,24 +357,26 @@ send_deploy() {
   esac
 }
 
-build_payload
-case "$mode" in
-  replace-image) echo "Deploying image $IMAGE (the app's other settings stay as stored)." ;;
-  define)        echo "App '$APP_ID' has no definition yet; defining it from $DEFINITION." ;;
-  redeploy)      echo "No image given: redeploying app '$APP_ID' as stored (tags are looked up again)." ;;
-esac
-
-send_deploy
-if [ "$HTTP_CODE" = 412 ] && [ "$(error_code)" = app_changed ] && [ "$mode" = replace-image ]; then
-  echo "The app changed since it was read; reading it again and retrying once."
-  read_app
-  if [ "$app_defined" != true ]; then
-    die "App '$APP_ID' has no definition any more: give 'definition' (or 'image' with a definition file)."
-  fi
+if [ "$mode" != promote-only ]; then
   build_payload
+  case "$mode" in
+    replace-image) echo "Deploying image $IMAGE (the app's other settings stay as stored)." ;;
+    define)        echo "App '$APP_ID' has no definition yet; defining it from $DEFINITION." ;;
+    redeploy)      echo "No image given: redeploying app '$APP_ID' as stored (tags are looked up again)." ;;
+  esac
+
   send_deploy
+  if [ "$HTTP_CODE" = 412 ] && [ "$(error_code)" = app_changed ] && [ "$mode" = replace-image ]; then
+    echo "The app changed since it was read; reading it again and retrying once."
+    read_app
+    if [ "$app_defined" != true ]; then
+      die "App '$APP_ID' has no definition any more: give 'definition' (or 'image' with a definition file)."
+    fi
+    build_payload
+    send_deploy
+  fi
+  [ "$HTTP_CODE" = 202 ] || fail_http "deploying app '$APP_ID'"
 fi
-[ "$HTTP_CODE" = 202 ] || fail_http "deploying app '$APP_ID'"
 
 # --------------------------------------------------------- follow it
 
@@ -460,66 +471,69 @@ origin_summary() {
 
 # --------------------------------------------------------- first deploy
 
-track
-set_output deployment-id "$deploy_id"
-echo "Deployment started: $deploy_id"
+if [ "$mode" != promote-only ]; then
+  track
+  set_output deployment-id "$deploy_id"
+  echo "Deployment started: $deploy_id"
 
-if [ "$WAIT" = false ]; then
+  if [ "$WAIT" = false ]; then
+    set_output status "$deploy_status"
+    set_output job-version "$(jq -r '.jobVersion // ""' "$body")"
+    echo "Not waiting (wait is false). Follow it at $base$deploy_url"
+    add_summary "| Status | \`$deploy_status\` (not waited for) |"
+    add_summary "| Deployment | \`$deploy_id\` |"
+    add_summary "| App | \`$APP_ID\` |"
+    write_summary
+    exit 0
+  fi
+
+  echo "Waiting for the rollout (up to $(describe_wait))."
+  if ! wait_final; then
+    set_output status "$deploy_status"
+    error "The deployment $deploy_id was still '$deploy_status' after $(describe_wait); giving up waiting. Caravana goes on with it."
+    add_summary "| Status | \`$deploy_status\` |"
+    add_summary "| Deployment | \`$deploy_id\` |"
+    summary_note="The deployment was still \`$deploy_status\` after $(describe_wait). Caravana goes on with it."
+    exit_with_summary 1
+  fi
+
   set_output status "$deploy_status"
   set_output job-version "$(jq -r '.jobVersion // ""' "$body")"
-  echo "Not waiting (wait is false). Follow it at $base$deploy_url"
-  add_summary "| Status | \`$deploy_status\` (not waited for) |"
-  add_summary "| Deployment | \`$deploy_id\` |"
+  print_warnings
   add_summary "| App | \`$APP_ID\` |"
-  write_summary
-  exit 0
-fi
-
-echo "Waiting for the rollout (up to $(describe_wait))."
-if ! wait_final; then
-  set_output status "$deploy_status"
-  error "The deployment $deploy_id was still '$deploy_status' after $(describe_wait); giving up waiting. Caravana goes on with it."
   add_summary "| Status | \`$deploy_status\` |"
   add_summary "| Deployment | \`$deploy_id\` |"
-  summary_note="The deployment was still \`$deploy_status\` after $(describe_wait). Caravana goes on with it."
-  exit_with_summary 1
-fi
+  add_summary "| Nomad job version | \`$(jq -r '.jobVersion // "unknown"' "$body")\` |"
+  summary_digests
+  origin_summary
+  reason="$(jq -r '.error // ""' "$body")"
 
-set_output status "$deploy_status"
-set_output job-version "$(jq -r '.jobVersion // ""' "$body")"
-print_warnings
-add_summary "| App | \`$APP_ID\` |"
-add_summary "| Status | \`$deploy_status\` |"
-add_summary "| Deployment | \`$deploy_id\` |"
-add_summary "| Nomad job version | \`$(jq -r '.jobVersion // "unknown"' "$body")\` |"
-summary_digests
-origin_summary
-reason="$(jq -r '.error // ""' "$body")"
-
-case "$deploy_status" in
-  healthy) echo "Healthy: job version $(jq -r '.jobVersion // "unknown"' "$body")" ;;
-  superseded)
-    if [ "$FAIL_ON_SUPERSEDED" = true ]; then
-      error "The deployment $deploy_id was superseded by a newer deploy: ${reason:-no reason given}"
-      summary_note="The deployment was superseded by a newer deploy: ${reason:-no reason given}"
+  case "$deploy_status" in
+    healthy) echo "Healthy: job version $(jq -r '.jobVersion // "unknown"' "$body")" ;;
+    superseded)
+      if [ "$FAIL_ON_SUPERSEDED" = true ]; then
+        error "The deployment $deploy_id was superseded by a newer deploy: ${reason:-no reason given}"
+        summary_note="The deployment was superseded by a newer deploy: ${reason:-no reason given}"
+        exit_with_summary 1
+      fi
+      notice "The deployment $deploy_id was superseded by a newer deploy; that one is what runs. (fail-on-superseded is false.)"
+      if [ -n "$PROMOTE" ]; then
+        warning "Not promoting to '$PROMOTE': this deployment was superseded."
+      fi
+      exit_with_summary 0
+      ;;
+    *)
+      error "The deploy ended '$deploy_status': ${reason:-no reason given}"
+      summary_note="The deploy ended \`$deploy_status\`: ${reason:-no reason given}"
       exit_with_summary 1
-    fi
-    notice "The deployment $deploy_id was superseded by a newer deploy; that one is what runs. (fail-on-superseded is false.)"
-    if [ -n "$PROMOTE" ]; then
-      warning "Not promoting to '$PROMOTE': this deployment was superseded."
-    fi
-    exit_with_summary 0
-    ;;
-  *)
-    error "The deploy ended '$deploy_status': ${reason:-no reason given}"
-    summary_note="The deploy ended \`$deploy_status\`: ${reason:-no reason given}"
-    exit_with_summary 1
-    ;;
-esac
+      ;;
+  esac
+fi
 
 # ------------------------------------------------------------- promote
 
 if [ -n "$PROMOTE" ]; then
+  if [ "$mode" = promote-only ]; then add_summary "| App | \`$APP_ID\` |"; fi
   echo "Promoting app '$APP_ID' to environment '$PROMOTE'."
   call_or_die POST "/v1/apps/$APP_ID/promote" -H 'Content-Type: application/json' \
     ${origin_args[@]+"${origin_args[@]}"} --data "$(jq -nc --arg to "$PROMOTE" '{to: $to}')"
@@ -547,7 +561,12 @@ if [ -n "$PROMOTE" ]; then
   add_summary "| Promotion Nomad job version | \`$(jq -r '.jobVersion // "unknown"' "$body")\` |"
   reason="$(jq -r '.error // ""' "$body")"
   case "$deploy_status" in
-    healthy) echo "Promotion healthy: job version $(jq -r '.jobVersion // "unknown"' "$body")" ;;
+    healthy)
+      echo "Promotion healthy: job version $(jq -r '.jobVersion // "unknown"' "$body")"
+      if [ "$mode" = promote-only ]; then
+        summary_note="Promoted the newest healthy deployment of $APP_ID to $PROMOTE."
+      fi
+      ;;
     superseded)
       if [ "$FAIL_ON_SUPERSEDED" = true ]; then
         error "The promotion $deploy_id was superseded by a newer deploy: ${reason:-no reason given}"
