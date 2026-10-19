@@ -343,7 +343,8 @@ send_deploy() {
   local path="/v1/apps/$APP_ID/deployments"
   case "$mode" in
     replace-image)
-      call_or_die POST "$path" -H 'Content-Type: application/json' -H "If-Match: $revision" \
+      # Quoted, as getApp's ETag gives it: Caravana refuses a bare revision.
+      call_or_die POST "$path" -H 'Content-Type: application/json' -H "If-Match: \"$revision\"" \
         ${origin_args[@]+"${origin_args[@]}"} --data-binary "@$payload"
       ;;
     define)

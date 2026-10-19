@@ -153,6 +153,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply_error(cfg["post_error"])
 
         if_match = self.headers.get("If-Match")
+        if if_match is not None:
+            # As Caravana: one quoted revision, like getApp's ETag, else 400.
+            if len(if_match) < 2 or not (if_match.startswith('"') and if_match.endswith('"')):
+                return self.reply(400, error_body("invalid_field", "must be one quoted revision", "If-Match"))
+            if_match = if_match[1:-1]
         if raw_body and if_match:
             current = rec.get("revision", "0123456789abcdef") if rec else None
             if cfg.get("always_stale") or (cfg.get("stale_once", 0) > 0):

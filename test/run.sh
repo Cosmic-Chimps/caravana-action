@@ -222,7 +222,7 @@ eq "first line is the mask" "::add-mask::$TOKEN" "$(head -n 1 "$out")"
 eq "app reads" 1 "$(count GET '^/v1/apps/web$')"
 eq "deploys" 1 "$(count POST "$DEPLOYS")"
 eq "deployment reads (running, healthy)" 2 "$(count GET '^/v1/apps/web/deployments/dep1$')"
-eq "If-Match is the revision" "$REV" "$(req POST "$DEPLOYS" 0 '.headers["if-match"]')"
+eq "If-Match is the revision" "\"$REV\"" "$(req POST "$DEPLOYS" 0 '.headers["if-match"]')"
 eq "content type" application/json "$(req POST "$DEPLOYS" 0 '.headers["content-type"]')"
 eq "token reached the server as a bearer token" "Bearer $TOKEN" "$(req POST "$DEPLOYS" 0 '.headers.authorization')"
 eq "body: image replaced, rest kept" \
@@ -319,7 +319,7 @@ run_case image-and-definition-defined '{}' CARAVANA_APP=web "CARAVANA_IMAGE=$IMG
 exit_is 0
 eq "stored port kept" 8080 "$(req POST "$DEPLOYS" 0 '.body | fromjson | .services[0].port')"
 eq "image set" "$IMG" "$(req POST "$DEPLOYS" 0 '.body | fromjson | .services[0].image')"
-eq "If-Match sent" "$REV" "$(req POST "$DEPLOYS" 0 '.headers["if-match"]')"
+eq "If-Match sent" "\"$REV\"" "$(req POST "$DEPLOYS" 0 '.headers["if-match"]')"
 out_has "'definition' is ignored"
 
 echo "== define from a file"
@@ -395,8 +395,8 @@ run_case stale-once '{"deploy": {"stale_once": 1}}' CARAVANA_APP=web "CARAVANA_I
 exit_is 0
 eq "app read twice" 2 "$(count GET '^/v1/apps/web$')"
 eq "deploy sent twice" 2 "$(count POST "$DEPLOYS")"
-eq "first If-Match" "$REV" "$(req POST "$DEPLOYS" 0 '.headers["if-match"]')"
-eq "second If-Match is the new revision" fedcba9876543210 "$(req POST "$DEPLOYS" 1 '.headers["if-match"]')"
+eq "first If-Match" "\"$REV\"" "$(req POST "$DEPLOYS" 0 '.headers["if-match"]')"
+eq "second If-Match is the new revision" "\"fedcba9876543210\"" "$(req POST "$DEPLOYS" 1 '.headers["if-match"]')"
 out_has "reading it again and retrying once"
 outputs_has status=healthy
 run_case stale-always '{"deploy": {"always_stale": true}}' CARAVANA_APP=web "CARAVANA_IMAGE=$IMG"
